@@ -62,3 +62,70 @@
         (ok (map-set project-admins admin true))
     )
 )
+
+;; Submit new contribution
+(define-public (submit-contribution (details (string-utf8 256)))
+    (let (
+            (contribution-id (+ (var-get contribution-counter) u1))
+            (contributor tx-sender)
+        )
+        (begin
+            (var-set contribution-counter contribution-id)
+            (map-set Contributions contribution-id {
+                contributor: contributor,
+                timestamp: stacks-block-height,
+                details: details,
+                score: u0,
+                verified: false,
+            })
+            (match (map-get? Contributors contributor)
+                prev-profile (map-set Contributors contributor {
+                    total-score: (get total-score prev-profile),
+                    contribution-count: (+ (get contribution-count prev-profile) u1),
+                    tier: (get tier prev-profile),
+                    is-active: true,
+                })
+                (map-set Contributors contributor {
+                    total-score: u0,
+                    contribution-count: u1,
+                    tier: BRONZE,
+                    is-active: true,
+                })
+            )
+            (ok contribution-id)
+        )
+    )
+)
+
+;; Verify contribution and assign score
+(define-public (verify-contribution
+        (contribution-id uint)
+        (score uint)
+    )
+    (let ((contribution (unwrap! (map-get? Contributions contribution-id) err-not-found)))
+        (begin
+            ;; Fix: Use default-to to handle the optional boolean value
+            (asserts! (default-to false (map-get? project-admins tx-sender))
+                err-owner-only
+            )
+            (asserts! (not (get verified contribution)) err-already-verified)
+            ;; Update contribution
+            (map-set Contributions contribution-id
+                (merge contribution {
+                    score: score,
+                    verified: true,
+                })
+            )
+            ;; Update contributor profile
+            (match (map-get? Contributors (get contributor contribution))
+                prev-profile (begin
+                    (map-set Contributors (get contributor contribution)
+                        (merge prev-profile { total-score: (+ (get total-score prev-profile) score) })
+                    )
+                    (ok true)
+                )
+                err-not-found
+            )
+        )
+    )
+)
