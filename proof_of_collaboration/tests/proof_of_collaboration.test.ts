@@ -447,3 +447,564 @@ describe("Proof of Collaboration - Contribution Management", () => {
     });
   });
 });
+
+describe("Proof of Collaboration - Tier System and Advanced Features", () => {
+  beforeEach(() => {
+    // Reset simnet state and initialize contract before each test
+    simnet.setEpoch("3.0");
+    simnet.callPublicFn(contractName, "initialize", [], deployer);
+    // Add wallet1 as admin for verification tests
+    simnet.callPublicFn(contractName, "add-project-admin", [Cl.principal(wallet1)], deployer);
+  });
+
+  describe("Tier Calculation and Updates", () => {
+    it("should maintain BRONZE tier for scores below SILVER threshold", () => {
+      // Submit and verify contribution with score below SILVER threshold (100)
+      simnet.callPublicFn(
+        contractName,
+        "submit-contribution",
+        [Cl.stringUtf8("Small contribution")],
+        wallet2
+      );
+      
+      simnet.callPublicFn(
+        contractName,
+        "verify-contribution",
+        [Cl.uint(1), Cl.uint(50)], // Below 100
+        deployer
+      );
+
+      // Update tier
+      const updateResult = simnet.callPublicFn(
+        contractName,
+        "update-contributor-tier",
+        [Cl.principal(wallet2)],
+        deployer
+      );
+      expect(updateResult.result).toBeOk(Cl.bool(true));
+
+      // Check tier remains BRONZE
+      const { result } = simnet.callReadOnlyFn(
+        contractName,
+        "get-contributor-tier",
+        [Cl.principal(wallet2)],
+        deployer
+      );
+      expect(result).toBeOk(Cl.uint(1)); // BRONZE
+    });
+
+    it("should upgrade to SILVER tier for scores at/above SILVER threshold", () => {
+      // Submit and verify contribution with score at SILVER threshold (100)
+      simnet.callPublicFn(
+        contractName,
+        "submit-contribution",
+        [Cl.stringUtf8("Medium contribution")],
+        wallet2
+      );
+      
+      simnet.callPublicFn(
+        contractName,
+        "verify-contribution",
+        [Cl.uint(1), Cl.uint(100)], // Exactly 100
+        deployer
+      );
+
+      // Update tier
+      simnet.callPublicFn(
+        contractName,
+        "update-contributor-tier",
+        [Cl.principal(wallet2)],
+        deployer
+      );
+
+      // Check tier upgraded to SILVER
+      const { result } = simnet.callReadOnlyFn(
+        contractName,
+        "get-contributor-tier",
+        [Cl.principal(wallet2)],
+        deployer
+      );
+      expect(result).toBeOk(Cl.uint(2)); // SILVER
+    });
+
+    it("should upgrade to GOLD tier for scores at/above GOLD threshold", () => {
+      // Submit multiple contributions to reach GOLD threshold (250)
+      simnet.callPublicFn(
+        contractName,
+        "submit-contribution",
+        [Cl.stringUtf8("First large contribution")],
+        wallet2
+      );
+      
+      simnet.callPublicFn(
+        contractName,
+        "submit-contribution",
+        [Cl.stringUtf8("Second large contribution")],
+        wallet2
+      );
+      
+      // Verify with scores totaling 250
+      simnet.callPublicFn(
+        contractName,
+        "verify-contribution",
+        [Cl.uint(1), Cl.uint(150)],
+        deployer
+      );
+      
+      simnet.callPublicFn(
+        contractName,
+        "verify-contribution",
+        [Cl.uint(2), Cl.uint(100)],
+        deployer
+      );
+
+      // Update tier
+      simnet.callPublicFn(
+        contractName,
+        "update-contributor-tier",
+        [Cl.principal(wallet2)],
+        deployer
+      );
+
+      // Check tier upgraded to GOLD
+      const { result } = simnet.callReadOnlyFn(
+        contractName,
+        "get-contributor-tier",
+        [Cl.principal(wallet2)],
+        deployer
+      );
+      expect(result).toBeOk(Cl.uint(3)); // GOLD
+    });
+
+    it("should upgrade to PLATINUM tier for scores at/above PLATINUM threshold", () => {
+      // Submit multiple contributions to reach PLATINUM threshold (500)
+      for (let i = 1; i <= 3; i++) {
+        simnet.callPublicFn(
+          contractName,
+          "submit-contribution",
+          [Cl.stringUtf8(`Major contribution ${i}`)],
+          wallet2
+        );
+      }
+      
+      // Verify with scores totaling 500
+      simnet.callPublicFn(
+        contractName,
+        "verify-contribution",
+        [Cl.uint(1), Cl.uint(200)],
+        deployer
+      );
+      
+      simnet.callPublicFn(
+        contractName,
+        "verify-contribution",
+        [Cl.uint(2), Cl.uint(200)],
+        deployer
+      );
+      
+      simnet.callPublicFn(
+        contractName,
+        "verify-contribution",
+        [Cl.uint(3), Cl.uint(100)],
+        deployer
+      );
+
+      // Update tier
+      simnet.callPublicFn(
+        contractName,
+        "update-contributor-tier",
+        [Cl.principal(wallet2)],
+        deployer
+      );
+
+      // Check tier upgraded to PLATINUM
+      const { result } = simnet.callReadOnlyFn(
+        contractName,
+        "get-contributor-tier",
+        [Cl.principal(wallet2)],
+        deployer
+      );
+      expect(result).toBeOk(Cl.uint(4)); // PLATINUM
+    });
+
+    it("should return error when updating tier for non-existent contributor", () => {
+      const { result } = simnet.callPublicFn(
+        contractName,
+        "update-contributor-tier",
+        [Cl.principal(wallet1)], // wallet1 has no contributions
+        deployer
+      );
+      expect(result).toBeErr(Cl.uint(101)); // err-not-found
+    });
+
+    it("should allow anyone to update contributor tiers", () => {
+      // Submit and verify a contribution
+      simnet.callPublicFn(
+        contractName,
+        "submit-contribution",
+        [Cl.stringUtf8("Test contribution")],
+        wallet2
+      );
+      
+      simnet.callPublicFn(
+        contractName,
+        "verify-contribution",
+        [Cl.uint(1), Cl.uint(150)],
+        deployer
+      );
+
+      // Non-admin user can update tier
+      const { result } = simnet.callPublicFn(
+        contractName,
+        "update-contributor-tier",
+        [Cl.principal(wallet2)],
+        wallet1 // wallet1 calling, not admin for this function
+      );
+      expect(result).toBeOk(Cl.bool(true));
+    });
+  });
+
+  describe("Complete Workflow Integration Tests", () => {
+    it("should handle complete contributor journey from bronze to platinum", () => {
+      // Phase 1: Start with BRONZE (first contribution)
+      simnet.callPublicFn(
+        contractName,
+        "submit-contribution",
+        [Cl.stringUtf8("Initial contribution")],
+        wallet2
+      );
+      
+      simnet.callPublicFn(
+        contractName,
+        "verify-contribution",
+        [Cl.uint(1), Cl.uint(50)],
+        deployer
+      );
+
+      simnet.callPublicFn(
+        contractName,
+        "update-contributor-tier",
+        [Cl.principal(wallet2)],
+        deployer
+      );
+
+      let tierResult = simnet.callReadOnlyFn(
+        contractName,
+        "get-contributor-tier",
+        [Cl.principal(wallet2)],
+        deployer
+      );
+      expect(tierResult.result).toBeOk(Cl.uint(1)); // BRONZE
+
+      // Phase 2: Upgrade to SILVER (reach 100 total score)
+      simnet.callPublicFn(
+        contractName,
+        "submit-contribution",
+        [Cl.stringUtf8("Second contribution")],
+        wallet2
+      );
+      
+      simnet.callPublicFn(
+        contractName,
+        "verify-contribution",
+        [Cl.uint(2), Cl.uint(60)], // Total: 50 + 60 = 110
+        deployer
+      );
+
+      simnet.callPublicFn(
+        contractName,
+        "update-contributor-tier",
+        [Cl.principal(wallet2)],
+        deployer
+      );
+
+      tierResult = simnet.callReadOnlyFn(
+        contractName,
+        "get-contributor-tier",
+        [Cl.principal(wallet2)],
+        deployer
+      );
+      expect(tierResult.result).toBeOk(Cl.uint(2)); // SILVER
+
+      // Phase 3: Upgrade to GOLD (reach 250 total score)
+      simnet.callPublicFn(
+        contractName,
+        "submit-contribution",
+        [Cl.stringUtf8("Third contribution")],
+        wallet2
+      );
+      
+      simnet.callPublicFn(
+        contractName,
+        "verify-contribution",
+        [Cl.uint(3), Cl.uint(150)], // Total: 110 + 150 = 260
+        deployer
+      );
+
+      simnet.callPublicFn(
+        contractName,
+        "update-contributor-tier",
+        [Cl.principal(wallet2)],
+        deployer
+      );
+
+      tierResult = simnet.callReadOnlyFn(
+        contractName,
+        "get-contributor-tier",
+        [Cl.principal(wallet2)],
+        deployer
+      );
+      expect(tierResult.result).toBeOk(Cl.uint(3)); // GOLD
+
+      // Phase 4: Upgrade to PLATINUM (reach 500 total score)
+      simnet.callPublicFn(
+        contractName,
+        "submit-contribution",
+        [Cl.stringUtf8("Fourth contribution")],
+        wallet2
+      );
+      
+      simnet.callPublicFn(
+        contractName,
+        "verify-contribution",
+        [Cl.uint(4), Cl.uint(250)], // Total: 260 + 250 = 510
+        deployer
+      );
+
+      simnet.callPublicFn(
+        contractName,
+        "update-contributor-tier",
+        [Cl.principal(wallet2)],
+        deployer
+      );
+
+      tierResult = simnet.callReadOnlyFn(
+        contractName,
+        "get-contributor-tier",
+        [Cl.principal(wallet2)],
+        deployer
+      );
+      expect(tierResult.result).toBeOk(Cl.uint(4)); // PLATINUM
+
+      // Verify final profile state
+      const profileResult = simnet.callReadOnlyFn(
+        contractName,
+        "get-contributor-profile",
+        [Cl.principal(wallet2)],
+        deployer
+      );
+      
+      expect(profileResult.result).toBeSome(
+        Cl.tuple({
+          "total-score": Cl.uint(510),
+          "contribution-count": Cl.uint(4),
+          "tier": Cl.uint(4), // PLATINUM
+          "is-active": Cl.bool(true),
+        })
+      );
+    });
+
+    it("should handle multiple contributors with different tier progressions", () => {
+      // Contributor 1 (wallet1): Reaches SILVER
+      simnet.callPublicFn(
+        contractName,
+        "submit-contribution",
+        [Cl.stringUtf8("Wallet1 contribution")],
+        wallet1
+      );
+      
+      simnet.callPublicFn(
+        contractName,
+        "verify-contribution",
+        [Cl.uint(1), Cl.uint(120)],
+        deployer
+      );
+
+      simnet.callPublicFn(
+        contractName,
+        "update-contributor-tier",
+        [Cl.principal(wallet1)],
+        deployer
+      );
+
+      // Contributor 2 (wallet2): Reaches GOLD
+      simnet.callPublicFn(
+        contractName,
+        "submit-contribution",
+        [Cl.stringUtf8("Wallet2 first contribution")],
+        wallet2
+      );
+      
+      simnet.callPublicFn(
+        contractName,
+        "submit-contribution",
+        [Cl.stringUtf8("Wallet2 second contribution")],
+        wallet2
+      );
+      
+      simnet.callPublicFn(
+        contractName,
+        "verify-contribution",
+        [Cl.uint(2), Cl.uint(150)],
+        deployer
+      );
+      
+      simnet.callPublicFn(
+        contractName,
+        "verify-contribution",
+        [Cl.uint(3), Cl.uint(120)], // Total: 270
+        deployer
+      );
+
+      simnet.callPublicFn(
+        contractName,
+        "update-contributor-tier",
+        [Cl.principal(wallet2)],
+        deployer
+      );
+
+      // Check tiers
+      const tier1Result = simnet.callReadOnlyFn(
+        contractName,
+        "get-contributor-tier",
+        [Cl.principal(wallet1)],
+        deployer
+      );
+      expect(tier1Result.result).toBeOk(Cl.uint(2)); // SILVER
+
+      const tier2Result = simnet.callReadOnlyFn(
+        contractName,
+        "get-contributor-tier",
+        [Cl.principal(wallet2)],
+        deployer
+      );
+      expect(tier2Result.result).toBeOk(Cl.uint(3)); // GOLD
+    });
+  });
+
+  describe("Edge Cases and Error Handling", () => {
+    it("should handle zero score contributions correctly", () => {
+      simnet.callPublicFn(
+        contractName,
+        "submit-contribution",
+        [Cl.stringUtf8("Zero score contribution")],
+        wallet2
+      );
+      
+      // Verify with zero score
+      const { result } = simnet.callPublicFn(
+        contractName,
+        "verify-contribution",
+        [Cl.uint(1), Cl.uint(0)],
+        deployer
+      );
+      expect(result).toBeOk(Cl.bool(true));
+
+      // Profile should still be created/updated
+      const profileResult = simnet.callReadOnlyFn(
+        contractName,
+        "get-contributor-profile",
+        [Cl.principal(wallet2)],
+        deployer
+      );
+      
+      expect(profileResult.result).toBeSome(
+        Cl.tuple({
+          "total-score": Cl.uint(0),
+          "contribution-count": Cl.uint(1),
+          "tier": Cl.uint(1), // BRONZE
+          "is-active": Cl.bool(true),
+        })
+      );
+    });
+
+    it("should handle very large score values", () => {
+      simnet.callPublicFn(
+        contractName,
+        "submit-contribution",
+        [Cl.stringUtf8("High value contribution")],
+        wallet2
+      );
+      
+      // Verify with large score
+      const largeScore = 1000000;
+      const { result } = simnet.callPublicFn(
+        contractName,
+        "verify-contribution",
+        [Cl.uint(1), Cl.uint(largeScore)],
+        deployer
+      );
+      expect(result).toBeOk(Cl.bool(true));
+
+      // Update tier and check it reaches PLATINUM
+      simnet.callPublicFn(
+        contractName,
+        "update-contributor-tier",
+        [Cl.principal(wallet2)],
+        deployer
+      );
+
+      const tierResult = simnet.callReadOnlyFn(
+        contractName,
+        "get-contributor-tier",
+        [Cl.principal(wallet2)],
+        deployer
+      );
+      expect(tierResult.result).toBeOk(Cl.uint(4)); // PLATINUM
+    });
+
+    it("should maintain data consistency across multiple operations", () => {
+      // Perform multiple rapid operations
+      for (let i = 1; i <= 5; i++) {
+        simnet.callPublicFn(
+          contractName,
+          "submit-contribution",
+          [Cl.stringUtf8(`Rapid contribution ${i}`)],
+          wallet2
+        );
+        
+        simnet.callPublicFn(
+          contractName,
+          "verify-contribution",
+          [Cl.uint(i), Cl.uint(i * 10)],
+          deployer
+        );
+      }
+
+      // Check final state consistency
+      const profileResult = simnet.callReadOnlyFn(
+        contractName,
+        "get-contributor-profile",
+        [Cl.principal(wallet2)],
+        deployer
+      );
+      
+      // Expected total: 10 + 20 + 30 + 40 + 50 = 150
+      expect(profileResult.result).toBeSome(
+        Cl.tuple({
+          "total-score": Cl.uint(150),
+          "contribution-count": Cl.uint(5),
+          "tier": Cl.uint(1), // Still BRONZE until tier update
+          "is-active": Cl.bool(true),
+        })
+      );
+
+      // Update tier and verify it reaches SILVER
+      simnet.callPublicFn(
+        contractName,
+        "update-contributor-tier",
+        [Cl.principal(wallet2)],
+        deployer
+      );
+
+      const tierResult = simnet.callReadOnlyFn(
+        contractName,
+        "get-contributor-tier",
+        [Cl.principal(wallet2)],
+        deployer
+      );
+      expect(tierResult.result).toBeOk(Cl.uint(2)); // SILVER
+    });
+  });
+});
+
